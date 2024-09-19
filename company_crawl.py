@@ -4,13 +4,19 @@ from collections import deque
 from urllib.parse import urlparse
 import os
 import re
-
+from googlesearch import search
+import json
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+# from selenium.webdriver.support.ui import WebDriverWait
+# from selenium.webdriver.support import expected_conditions as EC
+# from webdriver_manager.chrome import ChromeDriverManager
 
 # Regex pattern to match a URL
 HTTP_URL_PATTERN = r'^http[s]*://.+'
 
-domain = "seamind.ai"  # <- put your domain to be crawled
-full_url = "https://seamind.ai"  # <- put your domain to be crawled with https or http
+
 
 # Function to get the hyperlinks from a URL using Playwright
 def get_hyperlinks_playwright(url):
@@ -24,8 +30,6 @@ def get_hyperlinks_playwright(url):
         hyperlinks = [link.get('href') for link in soup.find_all('a', href=True)]
         browser.close()
     return hyperlinks
-
-
 
 # Function to get the hyperlinks from a URL that are within the same domain
 def get_domain_hyperlinks(local_domain, url):
@@ -55,15 +59,11 @@ def get_domain_hyperlinks(local_domain, url):
     # Return the list of hyperlinks that are within the same domain
     return list(set(clean_links))
 
-# print(get_domain_hyperlinks(domain, full_url))
-
-
 
 def crawl(url):
     # Parse the URL and get the domain
     local_domain = urlparse(url).netloc
     print("this is local_domain: "+local_domain)
-    # print("hello")
 
     # Create a queue to store the URLs to crawl
     queue = deque([url])
@@ -84,23 +84,7 @@ def crawl(url):
         # Get the next URL from the queue
         current_url = queue.pop()
         # print(current_url)  # for debugging and to see the progress
-
-        # Use Playwright to get the page content
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            page = browser.new_page()
-            page.goto(current_url)
-            html = page.content()
-            soup = BeautifulSoup(html, 'html.parser')
-            text = soup.get_text()
-            # Normalize whitespace to ensure each word is separated by a single space
-            text = re.sub(r'\s+', ' ', text).strip()
-            all_company_text.append(text)
-            # # Save text from the url to a <url>.txt file
-            # with open('text/'+local_domain+'/'+current_url[8:].replace("/", "_") + ".txt", "w", encoding="UTF-8") as f:
-            #     f.write(text)
-
-            browser.close()
+        all_company_text.append(get_page_text(current_url))
 
         # Get the hyperlinks from the URL and add them to the queue
         for link in get_domain_hyperlinks(local_domain, current_url):
@@ -109,127 +93,130 @@ def crawl(url):
                 seen.add(link)
     
     concatenated_text = " ".join(all_company_text)
-    # Save text from the url to a <url>.txt file
-    with open('text/'+local_domain+ ".txt", "w", encoding="UTF-8") as f:
-        f.write(concatenated_text)
-crawl(full_url)
+    return concatenated_text
 
-# Embedding Section
-
-# def remove_newlines(serie):
-#     serie = serie.str.replace('\n', ' ')
-#     serie = serie.str.replace('\\n', ' ')
-#     serie = serie.str.replace('  ', ' ')
-#     serie = serie.str.replace('  ', ' ')
-#     return serie
-
-
-# import pandas as pd
-# # Create a list to store the text files
-# texts=[]
-
-# # Get all the text files in the text directory
-# for file in os.listdir("text/" + domain + "/"):
-
-#     # Open the file and read the text
-#     with open("text/" + domain + "/" + file, "r", encoding="UTF-8") as f:
-#         text = f.read()
-
-#         # Omit the first 11 lines and the last 4 lines, then replace -, _, and #update with spaces.
-#         texts.append((file[11:-4].replace('-',' ').replace('_', ' ').replace('#update',''), text))
-
-# # Create a dataframe from the list of texts
-# df = pd.DataFrame(texts, columns = ['fname', 'text'])
-
-# # Set the text column to be the raw text with the newlines removed
-# df['text'] = df.fname + ". " + remove_newlines(df.text)
-# df.to_csv('processed/scraped.csv')
-# df.head()
-
-# import tiktoken
-# # Load the cl100k_base tokenizer which is designed to work with the ada-002 model
-# tokenizer = tiktoken.get_encoding("cl100k_base")
-
-# df = pd.read_csv('processed/scraped.csv', index_col=0)
-# df.columns = ['title', 'text']
-
-# # Tokenize the text and save the number of tokens to a new column
-# df['n_tokens'] = df.text.apply(lambda x: len(tokenizer.encode(x)))
-
-# # Visualize the distribution of the number of tokens per row using a histogram
-# # df.n_tokens.hist()
-# max_tokens = 500
-
-# # Function to split the text into chunks of a maximum number of tokens
-# def split_into_many(text, max_tokens = max_tokens):
-
-#     # Split the text into sentences
-#     sentences = text.split('. ')
-
-#     # Get the number of tokens for each sentence
-#     n_tokens = [len(tokenizer.encode(" " + sentence)) for sentence in sentences]
-
-#     chunks = []
-#     tokens_so_far = 0
-#     chunk = []
-
-#     # Loop through the sentences and tokens joined together in a tuple
-#     for sentence, token in zip(sentences, n_tokens):
-
-#         # If the number of tokens so far plus the number of tokens in the current sentence is greater
-#         # than the max number of tokens, then add the chunk to the list of chunks and reset
-#         # the chunk and tokens so far
-#         if tokens_so_far + token > max_tokens:
-#             chunks.append(". ".join(chunk) + ".")
-#             chunk = []
-#             tokens_so_far = 0
-
-#         # If the number of tokens in the current sentence is greater than the max number of
-#         # tokens, go to the next sentence
-#         if token > max_tokens:
-#             continue
-
-#         # Otherwise, add the sentence to the chunk and add the number of tokens to the total
-#         chunk.append(sentence)
-#         tokens_so_far += token + 1
-
-#     return chunks
+# Use Playwright to get the page content
+def get_page_text(url):
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(url)
+        html = page.content()
+        soup = BeautifulSoup(html, 'html.parser')
+        text = soup.get_text()
+        # Normalize whitespace to ensure each word is separated by a single space
+        text = re.sub(r'\s+', ' ', text).strip()
+        # Add a header for the text on the current page
+        page_header = f"Header: {url}\n"
+        browser.close()
+        return page_header + text + "\n"
 
 
-# shortened = []
+def get_top_google_results(company_name, num_results=4):
 
-# # Loop through the dataframe
-# for row in df.iterrows():
+    query = company_name
+    top_results = []
 
-#     # If the text is None, go to the next row
-#     if row[1]['text'] is None:
-#         continue
+    try:
+        # Perform a Google search and get the top 3 results
+        for result in search(query, num_results):
+            top_results.append(result)
+            get_page_text(result)
+    except Exception as e:
+        print(f"An error occurred while searching for {company_name}: {e}")
 
-#     # If the number of tokens is greater than the max number of tokens, split the text into chunks
-#     if row[1]['n_tokens'] > max_tokens:
-#         shortened += split_into_many(row[1]['text'])
-
-#     # Otherwise, add the text to the list of shortened texts
-#     else:
-#         shortened.append( row[1]['text'] )
-
-# df = pd.DataFrame(shortened, columns = ['text'])
-# df['n_tokens'] = df.text.apply(lambda x: len(tokenizer.encode(x)))
-
-# from openai import OpenAI
-# from dotenv import load_dotenv
-
-# load_dotenv()
-# client = OpenAI()
-# df['embeddings'] = df.text.apply(lambda x: client.embeddings.create(input=x, model='text-embedding-ada-002').data[0].embedding)
-# df.to_csv('processed/embeddings.csv')
-# df.head()
+    return top_results
 
 
-# import numpy as np
-# from openai.embeddings_utils import distances_from_embeddings
+# print(get_top_google_results("claim.co startup company"))
 
-# df=pd.read_csv('processed/embeddings.csv', index_col=0)
-# df['embeddings'] = df['embeddings'].apply(eval).apply(np.array)
 
-# df.head()
+def initialize_company(company_name):
+    company = {
+        "company_name": company_name,
+        "website_text": [],
+        "webpage_discussions": [],
+        "employees": [],
+        "first_contact": {
+            "message": "",
+            "date_sent": "",
+            "outlook_link": "",
+            "linkedin_link": ""
+        },
+        "second_contact": {
+            "message": "",
+            "date_sent": "",
+            "outlook_link": "",
+            "linkedin_link": ""
+        },
+        "third_contact": {
+            "message": "",
+            "date_sent": "",
+            "outlook_link": "",
+            "linkedin_link": ""
+        },
+        "linkedin_scraped_text": "",
+        "processed_info": {
+            "latest_news": "",
+            "office_locations": "",
+            "tech_stack": [],
+            "company_pain_points": "",
+            "contacts_history": [],
+            "target_research": ""
+        }
+    }
+    return company
+
+def setup_driver():
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    return driver
+
+def scrape_linkedin_company_page(company_name):
+    driver = setup_driver()
+    linkedin_url = f"https://www.linkedin.com/company/{company_name}/"
+    driver.get(linkedin_url)
+    
+    company_info = {}
+    
+    try:
+        # Wait for the company name to be present
+        company_name_element = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//h1[contains(@class, 'org-top-card-summary__title')]"))
+        )
+        company_info['name'] = company_name_element.text
+        
+        # Scrape company description
+        description_element = driver.find_element(By.XPATH, "//p[contains(@class, 'org-top-card-summary__tagline')]")
+        company_info['description'] = description_element.text
+        
+        # Scrape number of employees
+        employees_element = driver.find_element(By.XPATH, "//span[contains(@class, 'org-top-card-summary-info-list__info-item')]")
+        company_info['employees'] = employees_element.text
+        
+        # Scrape company website
+        website_element = driver.find_element(By.XPATH, "//a[contains(@class, 'org-about-company-module__website')]")
+        company_info['website'] = website_element.get_attribute("href")
+        
+    except Exception as e:
+        print(f"An error occurred while scraping LinkedIn page for {company_name}: {e}")
+    finally:
+        driver.quit()
+    
+    return company_info
+
+
+def main():
+    domain = "claim.co"
+    full_url = "https://www.claim.co/"
+    claim = initialize_company("claim")
+
+    
+
+
+
+if __name__ == "__main__":
+    main()
